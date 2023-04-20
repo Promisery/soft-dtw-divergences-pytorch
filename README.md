@@ -7,21 +7,22 @@ Example
 -------
 
 ```python
-import numpy as np
-from sdtw_div.numba_ops import sdtw_div, sdtw_div_value_and_grad
+import torch
+from pytorch_ops import sharp_sdtw_div_value_and_grad
 
-# Two 3-dimensional time series of lengths 5 and 4, respectively.
-X = np.random.randn(5, 3)
-Y = np.random.randn(4, 3)
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+X = torch.randn(3, 100).to(device)
+y = torch.randn(3, 10).to(device)
 
-# Compute the divergence value. The parameter gamma controls the regularization strength. 
-value = sdtw_div(X, Y, gamma=1.0)
+model = torch.nn.Linear(100, 10).to(device)
 
-# Compute the divergence value and the gradient w.r.t. X.
-value, grad = sdtw_div_value_and_grad(X, Y, gamma=1.0)
+x = model(X)
+
+value, grad = sharp_sdtw_div_value_and_grad(x, y)
+
+x.backward(grad)
 ```
-Similarly, we can use `sharp_sdtw_div`, `sharp_sdtw_div_value_and_grad`,
-`mean_cost_div` and `mean_cost_div_value_and_grad`.
 
 Reference
 ----------

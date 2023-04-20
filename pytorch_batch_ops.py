@@ -86,24 +86,6 @@ def sdtw_C(C, gamma=1.0, return_all=False):
         return V[:, size_X, size_Y] * gamma
 
 
-def sdtw(X, Y, gamma=1.0, return_all=False):
-  """Computes the soft-DTW value from time series X and Y.
-
-  The cost is assumed to be the squared Euclidean one.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    gamma: regularization strength (scalar value).
-    return_all: whether to return intermediate computations.
-  Returns:
-    sdtw_value if not return_all
-    V (intermediate values), P (transition probability matrix) if return_all
-  """
-  C = squared_euclidean_cost(X, Y)
-  return sdtw_C(C, gamma=gamma, return_all=return_all)
-
-
 @torch.jit.script
 def _sdtw_grad_C(P, E):
     """Backward dynamic programming recursion.
@@ -145,37 +127,6 @@ def sdtw_grad_C(P, return_all=False):
         return E
     else:
         return E[:, 1:-1, 1:-1]
-
-
-def sdtw_value_and_grad_C(C, gamma=1.0):
-  """Computes the soft-DTW value *and* gradient w.r.t. the cost matrix C.
-
-  Args:
-    C: cost matrix, pytorch tensor of shape (size_X, size_Y).
-    gamma: regularization strength (scalar value).
-  Returns:
-    sdtw_value, sdtw_gradient_C
-  """
-  size_X, size_Y = C.shape
-  V, P = sdtw_C(C, gamma=gamma, return_all=True)
-  return V[size_X, size_Y], sdtw_grad_C(P)
-
-
-def sdtw_value_and_grad(X, Y, gamma=1.0):
-  """Computes soft-DTW value *and* gradient w.r.t. time series X.
-
-  The cost is assumed to be the squared Euclidean one.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    gamma: regularization strength (scalar value).
-  Returns:
-    sdtw_value, sdtw_gradient_X
-  """
-  C = squared_euclidean_cost(X, Y)
-  val, grad = sdtw_value_and_grad_C(C, gamma=gamma)
-  return val, squared_euclidean_cost_vjp(X, Y, grad)
 
 
 @torch.jit.script
@@ -285,62 +236,6 @@ def sdtw_hessian_product_C(P, E, V_dot):
     return E_dot[:, 1:-1, 1:-1]
 
 
-def sdtw_entropy_C(C, gamma=1.0):
-  """Computes the entropy of the Gibbs distribution associated with soft-DTW.
-
-  Args:
-    C: cost matrix, pytorch tensor of shape (size_X, size_Y).
-    gamma: regularization strength (scalar value).
-  Returns:
-    entropy_value
-  """
-  val, E = sdtw_value_and_grad_C(C, gamma=gamma)
-  return (torch.vdot(E.flatten(), C.flatten()) - val) / gamma
-
-
-def sdtw_entropy(X, Y, gamma=1.0):
-  """Computes the entropy of the Gibbs distribution associated with soft-DTW.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    gamma: regularization strength (scalar value).
-  Returns:
-    entropy_value
-  """
-  C = squared_euclidean_cost(X, Y)
-  return sdtw_entropy_C(C, gamma=gamma)
-
-
-def sharp_sdtw_C(C, gamma=1.0):
-  """Computes the sharp soft-DTW value from a cost matrix C.
-
-  Args:
-    C: cost matrix, pytorch tensor of shape (size_X, size_Y).
-    gamma: regularization strength (scalar value).
-  Returns:
-    sharp_sdtw_value
-  """
-  P = sdtw_C(C, gamma=gamma, return_all=True)[1]
-  return sdtw_directional_derivative_C(P, C)
-
-
-def sharp_sdtw(X, Y, gamma=1.0):
-  """Computes the sharp soft-DTW value from time series X and Y.
-
-  The cost is assumed to be the squared Euclidean one.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    gamma: regularization strength (scalar value).
-  Returns:
-    sharp_sdtw_value
-  """
-  C = squared_euclidean_cost(X, Y)
-  return sharp_sdtw_C(C, gamma=gamma)
-
-
 def sharp_sdtw_value_and_grad_C(C, gamma=1.0):
     """Computes the sharp soft-DTW value *and* its gradient w.r.t. C.
 
@@ -360,29 +255,12 @@ def sharp_sdtw_value_and_grad_C(C, gamma=1.0):
     return val, grad
 
 
-def sharp_sdtw_value_and_grad(X, Y, gamma=1.0):
-  """Computes the sharp soft-DTW value *and* its gradient w.r.t. X.
-
-  The cost is assumed to be the squared Euclidean one.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    gamma: regularization strength (scalar value).
-  Returns:
-    sharp_sdtw_value, sharp_sdtw_grad_X
-  """
-  C = squared_euclidean_cost(X, Y)
-  val, grad = sharp_sdtw_value_and_grad_C(C, gamma=gamma)
-  return val, squared_euclidean_cost_vjp(X, Y, grad)
-
-
 def squared_euclidean_cost(X, Y, return_all=False, log=False):
     """Computes the squared Euclidean cost.
 
     Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
+    X: time series, pytorch tensor of shape (batch_size, seq_len, num_dim).
+    Y: time series, pytorch tensor of shape (batch_size, seq_len, num_dim).
     return_all: whether to also return the cost matrices for (X, X) and (Y, Y).
     log: whether to use the log-augmented cost or not (see paper).
     Returns:
@@ -425,15 +303,15 @@ def squared_euclidean_cost_vjp(X, Y, E, log=False):
     """Left-product with the Jacobian of the squared Euclidean cost.
 
     Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
+    X: time series, pytorch tensor of shape (batch_size, seq_len, num_dim).
+    Y: time series, pytorch tensor of shape (batch_size, seq_len, num_dim).
     E: matrix to multiply with, pytorch tensor of shape (size_X, size_Y).
     log: whether to use the log-augmented cost or not (see paper).
     Returns:
     vjp
     """
     if E.shape[1] != X.shape[1] or E.shape[2] != Y.shape[1]:
-        raise ValueError("E.shape should be equal to (len(X), len(Y)).")
+        raise ValueError("E.shape[1:] should be equal to (X.shape[1], Y.shape[1]).")
 
     e = E.sum(axis=2)
     vjp = X * e.unsqueeze(-1)
@@ -447,63 +325,6 @@ def squared_euclidean_cost_vjp(X, Y, E, log=False):
     return vjp
 
 
-def squared_euclidean_cost_jvp(X, Y, Z):
-  """Right-product with the Jacobian of the squared Euclidean cost.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    Z: matrix to multiply with, pytorch tensor of shape (size_X, num_dim).
-  Returns:
-    jvp
-  """
-  if Z.shape[0] != X.shape[0] or Z.shape[1] != X.shape[1]:
-    raise ValueError("Z should be of the same shape as X.")
-
-  if Y.shape[1] != Z.shape[1]:
-    raise ValueError("Y.shape[1] should be equal to Z.shape[1].")
-
-  jvp = -torch.matmul(Z, Y.T)
-  jvp += torch.sum(X * Z, dim=1)[:, None]
-  return jvp
-
-
-def squared_euclidean_distance(X, Y):
-  """Computes the squared Euclidean distance between two time series.
-
-  The two time series must have the same length.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-  Returns:
-    distance_value
-  """
-  if len(X) != len(Y) or X.shape[1] != Y.shape[1]:
-    raise ValueError("X and Y have incompatible shapes.")
-
-  return torch.sum((X - Y) ** 2) * 0.5
-
-
-def _divergence(func, X, Y):
-  """Converts a value function into a divergence.
-
-  The cost is assumed to be the squared Euclidean one.
-
-  Args:
-    func: function to use.
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-  Returns:
-    func(C(X,Y)) - 0.5 * func(C(X,X)) - 0.5 * func(C(Y,Y))
-  """
-  C_XY, C_XX, C_YY = squared_euclidean_cost(X, Y, return_all=True)
-  value = func(C_XY)
-  value -= func(C_XX) * 0.5
-  value -= func(C_YY) * 0.5
-  return value
-
-
 def _divergence_value_and_grad(func, X, Y):
     """Converts a value and grad function into a divergence.
 
@@ -511,8 +332,8 @@ def _divergence_value_and_grad(func, X, Y):
 
     Args:
     func: function to use.
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
+    X: time series, pytorch tensor of shape (batch_size, seq_len, num_dim).
+    Y: time series, pytorch tensor of shape (batch_size, seq_len, num_dim).
     Returns:
     div_value, div_grad_X
     """
@@ -527,62 +348,14 @@ def _divergence_value_and_grad(func, X, Y):
     return value, grad
 
 
-def sdtw_div(X, Y, gamma=1.0):
-  """Compute the soft-DTW divergence value between time series X and Y.
-
-  The cost is assumed to be the squared Euclidean one.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    gamma: regularization strength (scalar value).
-  Returns:
-    divergence_value
-  """
-  func = functools.partial(sdtw_C, gamma=gamma)
-  return _divergence(func, X, Y)
-
-
-def sdtw_div_value_and_grad(X, Y, gamma=1.0):
-  """Compute the soft-DTW divergence value *and* gradient w.r.t. X.
-
-  The cost is assumed to be the squared Euclidean one.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    gamma: regularization strength (scalar value).
-  Returns:
-    divergence_value, divergence_grad
-  """
-  func = functools.partial(sdtw_value_and_grad_C, gamma=gamma)
-  return _divergence_value_and_grad(func, X, Y)
-
-
-def sharp_sdtw_div(X, Y, gamma=1.0):
-  """Compute the sharp soft-DTW divergence value between time series X and Y.
-
-  The cost is assumed to be the squared Euclidean one.
-
-  Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
-    gamma: regularization strength (scalar value).
-  Returns:
-    divergence_value
-  """
-  func = functools.partial(sharp_sdtw_C, gamma=gamma)
-  return _divergence(func, X, Y)
-
-
 def sharp_sdtw_div_value_and_grad(X, Y, gamma=1.0):
     """Compute the sharp soft-DTW divergence value *and* gradient w.r.t. X.
 
     The cost is assumed to be the squared Euclidean one.
 
     Args:
-    X: time series, pytorch tensor of shape (size_X, num_dim).
-    Y: time series, pytorch tensor of shape (size_Y, num_dim).
+    X: time series, pytorch tensor of shape (batch_size, seq_len, num_dim).
+    Y: time series, pytorch tensor of shape (batch_size, seq_len, num_dim).
     gamma: regularization strength (scalar value).
     Returns:
     divergence_value, divergence_grad
